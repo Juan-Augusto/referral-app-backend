@@ -3,6 +3,8 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const sqlite3 = require("sqlite3").verbose();
 const cors = require("cors");
+const cron = require("node-cron");
+const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -22,8 +24,10 @@ db.run(`CREATE TABLE referrals (
   userID INTEGER,
   referralEmail TEXT,
   referralDescription TEXT,
-  hiringDate TEXT,
-  status TEXT,
+  hiringDate TEXT DEFAULT '',
+  status TEXT DEFAULT 'We review eligibility',
+  code TEXT,
+  amount INTEGER,
   FOREIGN KEY (userID) REFERENCES users(id)
 )`);
 
@@ -72,12 +76,15 @@ app.post("/login", (req, res) => {
       const token = jwt.sign({ id: user.id }, "your_jwt_secret", {
         expiresIn: "1h",
       });
-      res.json({ token });
+      res.json({
+        token,
+        id: user.id,
+        email: user.email,
+      });
     });
   });
 });
 
-// List users endpoint
 app.get("/users", (req, res) => {
   db.all(`SELECT id, email, password FROM users`, [], (err, rows) => {
     if (err) {
@@ -87,7 +94,6 @@ app.get("/users", (req, res) => {
   });
 });
 
-// Delete user endpoint
 app.delete("/deleteUser", (req, res) => {
   const { email } = req.body;
   db.run(`DELETE FROM users WHERE email = ?`, [email], (err) => {
@@ -98,17 +104,75 @@ app.delete("/deleteUser", (req, res) => {
   });
 });
 
-// Referrals endpoint
 app.post("/referrals", (req, res) => {
   const { userID, referralEmail, referralDescription } = req.body;
+  const hiringDate = "";
+  const status = "We review eligibility";
+
   db.run(
-    `INSERT INTO referrals (userID, referralEmail, referralDescription, status) VALUES (?, ?, ?, ?)`,
-    [userID, referralEmail, referralDescription, "We review eligibility"],
+    `INSERT INTO referrals (userID, referralEmail, referralDescription, hiringDate, status) VALUES (?, ?, ?, ?, ?)`,
+    [userID, referralEmail, referralDescription, hiringDate, status],
     (err) => {
       if (err) {
         return res.status(500).json({ error: "Failed to submit referral" });
       }
       res.status(201).json({ message: "Referral submitted" });
+    }
+  );
+});
+
+app.get("/referrals", (req, res) => {
+  db.all(`SELECT * FROM referrals`, [], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: "Failed to retrieve referrals" });
+    }
+    res.status(200).json(rows);
+  });
+});
+
+const generateCode = (referralId, amount) => {
+  const code = uuidv4();
+  db.run(
+    `UPDATE referrals SET code = ?, amount = ? WHERE id = ?`,
+    [code, amount, referralId],
+    (err) => {
+      if (err) {
+        console.error(
+          `Failed to generate code for referral ${referralId}`,
+          err
+        );
+      }
+    }
+  );
+};
+
+cron.schedule("0 0 * * *", () => {
+  const currentDate = new Date();
+  const threeMonthsAgo = new Date(
+    currentDate.setMonth(currentDate.getMonth() - 3)
+  );
+  const sixMonthsAgo = new Date(
+    currentDate.setMonth(currentDate.getMonth() - 6)
+  );
+
+  db.all(
+    `SELECT * FROM referrals WHERE hiringDate != "" AND status != "Referral stopped"`,
+    [],
+    (err, rows) => {
+      if (err) {
+        console.error("Failed to retrieve referrals", err);
+        return;
+      }
+
+      rows.forEach((referral) => {
+        const hiringDate = new Date(referral.hiringDate);
+
+        if (hiringDate <= sixMonthsAgo) {
+          generateCode(referral.id, 1200);
+        } else if (hiringDate <= threeMonthsAgo) {
+          generateCode(referral.id, 800);
+        }
+      });
     }
   );
 });
