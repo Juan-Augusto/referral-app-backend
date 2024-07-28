@@ -130,6 +130,55 @@ app.get("/referrals", (req, res) => {
   });
 });
 
+app.put("/referrals/:id", async (req, res) => {
+  const { id } = req.params;
+  const { referralEmail, description } = req.body;
+
+  if (!referralEmail || !description) {
+    return res
+      .status(400)
+      .json({ message: "Email and description are required" });
+  }
+
+  try {
+    db.run(
+      `UPDATE referrals
+        SET referralEmail = $1, referralDescription = $2
+        WHERE id = $3
+        RETURNING *`,
+      [referralEmail, description, id]
+    );
+
+    db.get(`SELECT * FROM referrals WHERE id = ?`, [id], (err, row) => {
+      if (err) {
+        return res.status(500).json({ message: "Internal server error" });
+      }
+      res.status(200).json(row);
+    });
+  } catch (error) {
+    console.error("Error updating referral", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+app.delete("/referrals/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    db.run(
+      `DELETE FROM referrals
+        WHERE id = $1
+        RETURNING *`,
+      [id]
+    );
+
+    res.status(200).json({ message: "Referral deleted" });
+  } catch (error) {
+    console.error("Error canceling referral", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 const generateCode = (referralId, amount) => {
   const code = uuidv4();
   db.run(
