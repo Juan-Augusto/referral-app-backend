@@ -5,13 +5,19 @@ const sqlite3 = require("sqlite3").verbose();
 const cors = require("cors");
 const cron = require("node-cron");
 const { v4: uuidv4 } = require("uuid");
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpec = require("./swagger");
+
+const PORT = process.env.PORT || 5000;
 
 const app = express();
-const PORT = process.env.PORT || 5000;
-const db = new sqlite3.Database(":memory:");
 
 app.use(express.json());
 app.use(cors());
+
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+const db = new sqlite3.Database(":memory:");
 
 db.run(`CREATE TABLE users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,6 +41,32 @@ const isBcryptHash = (str) => {
   return /^\$2[ayb]\$.{56}$/.test(str);
 };
 
+/**
+ * @swagger
+ * /signup:
+ *   post:
+ *     summary: Register a new user
+ *     description: Creates a new user with email and password
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: user@example.com
+ *               password:
+ *                 type: string
+ *                 example: password123
+ *     responses:
+ *       201:
+ *         description: User created
+ *       400:
+ *         description: User already exists
+ *       500:
+ *         description: Failed to create user
+ */
 app.post("/signup", async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -61,6 +93,44 @@ app.post("/signup", async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /login:
+ *   post:
+ *     summary: Log in a user
+ *     description: Authenticates a user and returns a JWT token
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: user@example.com
+ *               password:
+ *                 type: string
+ *                 example: password123
+ *     responses:
+ *       200:
+ *         description: Successfully logged in
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                   example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+ *                 id:
+ *                   type: integer
+ *                   example: 1
+ *                 email:
+ *                   type: string
+ *                   example: user@example.com
+ *       401:
+ *         description: Invalid credentials
+ */
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
   db.get(`SELECT * FROM users WHERE email = ?`, [email], (err, user) => {
@@ -85,6 +155,34 @@ app.post("/login", (req, res) => {
   });
 });
 
+/**
+ * @swagger
+ * /users:
+ *   get:
+ *     summary: Get all users
+ *     description: Returns a list of all users
+ *     responses:
+ *       200:
+ *         description: List of users
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 users:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       email:
+ *                         type: string
+ *                       password:
+ *                         type: string
+ *       500:
+ *         description: Failed to retrieve users
+ */
 app.get("/users", (req, res) => {
   db.all(`SELECT id, email, password FROM users`, [], (err, rows) => {
     if (err) {
@@ -94,6 +192,27 @@ app.get("/users", (req, res) => {
   });
 });
 
+/**
+ * @swagger
+ * /deleteUser:
+ *   delete:
+ *     summary: Delete a user
+ *     description: Deletes a user by email
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 example: user@example.com
+ *     responses:
+ *       200:
+ *         description: User deleted
+ *       500:
+ *         description: Failed to delete user
+ */
 app.delete("/deleteUser", (req, res) => {
   const { email } = req.body;
   db.run(`DELETE FROM users WHERE email = ?`, [email], (err) => {
@@ -104,6 +223,33 @@ app.delete("/deleteUser", (req, res) => {
   });
 });
 
+/**
+ * @swagger
+ * /referrals:
+ *   post:
+ *     summary: Submit a referral
+ *     description: Creates a new referral
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               userID:
+ *                 type: integer
+ *                 example: 1
+ *               referralEmail:
+ *                 type: string
+ *                 example: referral@example.com
+ *               referralDescription:
+ *                 type: string
+ *                 example: This is a great candidate because...
+ *     responses:
+ *       201:
+ *         description: Referral submitted
+ *       500:
+ *         description: Failed to submit referral
+ */
 app.post("/referrals", (req, res) => {
   const { userID, referralEmail, referralDescription } = req.body;
   const hiringDate = "";
@@ -121,6 +267,41 @@ app.post("/referrals", (req, res) => {
   );
 });
 
+/**
+ * @swagger
+ * /referrals:
+ *   get:
+ *     summary: Get all referrals
+ *     description: Returns a list of all referrals
+ *     responses:
+ *       200:
+ *         description: List of referrals
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   userID:
+ *                     type: integer
+ *                   referralEmail:
+ *                     type: string
+ *                   referralDescription:
+ *                     type: string
+ *                   hiringDate:
+ *                     type: string
+ *                   status:
+ *                     type: string
+ *                   code:
+ *                     type: string
+ *                   amount:
+ *                     type: integer
+ *       500:
+ *         description: Failed to retrieve referrals
+ */
 app.get("/referrals", (req, res) => {
   db.all(`SELECT * FROM referrals`, [], (err, rows) => {
     if (err) {
@@ -130,6 +311,50 @@ app.get("/referrals", (req, res) => {
   });
 });
 
+/**
+ * @swagger
+ * /referrals/{id}:
+ *   put:
+ *     summary: Update a referral
+ *     description: Updates a referral by ID
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         description: The ID of the referral
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               referralEmail:
+ *                 type: string
+ *                 example: updated@example.com
+ *               description:
+ *                 type: string
+ *                 example: Updated description
+ *     responses:
+ *       200:
+ *         description: Referral updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *                 referralEmail:
+ *                   type: string
+ *                 referralDescription:
+ *                   type: string
+ *       400:
+ *         description: Email and description are required
+ *       500:
+ *         description: Internal server error
+ */
 app.put("/referrals/:id", async (req, res) => {
   const { id } = req.params;
   const { referralEmail, description } = req.body;
@@ -143,9 +368,8 @@ app.put("/referrals/:id", async (req, res) => {
   try {
     db.run(
       `UPDATE referrals
-        SET referralEmail = $1, referralDescription = $2
-        WHERE id = $3
-        RETURNING *`,
+        SET referralEmail = ?, referralDescription = ?
+        WHERE id = ?`,
       [referralEmail, description, id]
     );
 
@@ -161,16 +385,30 @@ app.put("/referrals/:id", async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /referrals/{id}:
+ *   delete:
+ *     summary: Delete a referral
+ *     description: Deletes a referral by ID
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         description: The ID of the referral
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Referral deleted
+ *       500:
+ *         description: Internal server error
+ */
 app.delete("/referrals/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    db.run(
-      `DELETE FROM referrals
-        WHERE id = $1
-        RETURNING *`,
-      [id]
-    );
+    db.run(`DELETE FROM referrals WHERE id = ?`, [id]);
 
     res.status(200).json({ message: "Referral deleted" });
   } catch (error) {
